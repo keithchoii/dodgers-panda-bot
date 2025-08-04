@@ -1,7 +1,7 @@
 name: Daily Dodgers Win Check
 on:
   schedule:
-    - cron: '0 8 * * *'  # 12AM PST = 8AM UTC
+    - cron: '0 7 * * *'  # 11PM PST/12AM PDT = 7AM UTC
   workflow_dispatch:  # allows manual triggering
 
 jobs:
