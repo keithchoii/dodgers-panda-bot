@@ -28,7 +28,7 @@ jobs:
           
       - name: Upload schedule file as artifact (for debugging)
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: schedule-data
           path: home_games_schedule.json 
