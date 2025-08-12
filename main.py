@@ -1,195 +1,102 @@
-# dependencies
-import aiohttp
-import asyncio
-import statsapi
-import json
-import os
+import requests
+import datetime
 import logging
-from datetime import datetime, timedelta
+import os
+import json
 
+TEAM_ID = '119'  # Los Angeles Dodgers on ESPN
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+# Use env var if provided, else default to the ID you gave me
+DISCORD_ROLE_ID = os.getenv("DISCORD_ROLE_ID", "1404658865756180562")
+COUPON_CODE = "$6 Panda Express: https://www.pandaexpress.com"
+SCHEDULE_CACHE_FILE = "schedule_cache.json"
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(),  # Console output
-        logging.FileHandler('dodgers_bot.log')  # File output for debugging
-    ]
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 
+def pst_today():
+    # PST/PDT offset approximation: GitHub Actions runs in UTC; LA is UTC-8 or UTC-7.
+    # For midnight trigger we schedule 07:00 UTC which matches midnight PT.
+    return (datetime.datetime.utcnow() - datetime.timedelta(hours=7)).date()
 
-# constants
-WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL')
-if not WEBHOOK_URL:
-    raise ValueError("DISCORD_WEBHOOK_URL environment variable is required")
-HOME_GAMES_SCHEDULE = "home_games_schedule.json"
-DODGERS_TEAM = {
-    "name": "Los Angeles Dodgers",
-    "id": 119
-}
-
-
-# fetch team schedule for current year from MLB API
-# only stores dates of home games for the team
-# IMPORTANT: this helps reduce the overall amount of API calls made each season
-def get_team_schedule(team):
-    # define current season
-    season = datetime.now().year
-    
-    # check if we have already saved the schedule for this year
-    # return saved schedule if it exists and is for the current year
-    try:
-        with open(HOME_GAMES_SCHEDULE, 'r') as f:
-            saved_schedule = json.load(f)
-            if saved_schedule.get('season') == season:
-                logger.info(f"Using cached schedule for {team['name']} in {season}")
-                return saved_schedule['schedule']
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        logger.info("No valid cached schedule found, fetching fresh data from MLB API")
-    
-    # fetch schedule from MLB API
-    logger.info(f"Fetching {team['name']} schedule for {season} from MLB API")
-    try:
-        # get list of games for Dodgers in current year
-        team_games = statsapi.schedule(team=team['id'], season=season)
-        
-        # check if API call was successful
-        if not team_games:
-            logger.error(f"Failed to obtain games for {team['name']} in {season} from MLB API")
-            return None
-        
-        # process the data to get list of dates of home games only
-        team_home_dates = []
-        for game in team_games:
-            try:
-                if game.get('home_id') == team['id'] and game.get('game_date'):
-                    team_home_dates.append(game['game_date'])
-            except (KeyError, TypeError) as e:
-                logger.warning(f"Invalid game data structure: {e}")
-                continue
-        
-        # check if we found any home games
-        if not team_home_dates:
-            logger.warning(f"No home games found for {team['name']} in {season}")
-            return []
-        
-        # store the schedule in a json file
-        schedule_data = {
-            'season': season,
-            'schedule': team_home_dates,
-            'fetch_time': datetime.now().isoformat()
-        }
-        
-        with open(HOME_GAMES_SCHEDULE, 'w') as f:
-            json.dump(schedule_data, f, indent=2)
-        
-        logger.info(f"Successfully fetched and cached schedule for {team['name']} in {season} ({len(team_home_dates)} home games)")
-        return schedule_data['schedule']
-        
-    except Exception as e:
-        logger.error(f"Error fetching {team['name']} schedule from MLB API: {e}")
-        return None
-
-
-# check if the given team won yesterday
-def yesterday_win(team, test_date=None):
-    try:
-        # get list of team's schedule
-        schedule = get_team_schedule(team)
-        
-        # get yesterday's date or use test date
-        if test_date:
-            target_date = test_date
-            logger.info(f"Running in test mode with date: {target_date}")
-        else:
-            target_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            logger.info(f"Checking game result for date: {target_date}")
-        
-        # check if team played on target date
-        if target_date not in schedule:
-            logger.info(f"No home game found for {team['name']} on {target_date}")
-            return False
-        
-        # get game result for the team on target date
+def fetch_schedule_for(date_obj):
+    """Fetches and caches Dodgers schedule; returns dict for the given date (YYYY-MM-DD)."""
+    target = str(date_obj)
+    # Try cache
+    if os.path.exists(SCHEDULE_CACHE_FILE):
         try:
-            games = statsapi.schedule(date=target_date, team=team['id'])
-            
-            if not games:
-                logger.warning(f"No games found for {team['name']} on {target_date}")
-                return False
-            
-            game = games[0]  # get the first (and should be only) game
-            
+            with open(SCHEDULE_CACHE_FILE, "r") as f:
+                cache = json.load(f)
+            if target in cache:
+                return cache[target]
         except Exception as e:
-            logger.error(f"Error fetching game data for {team['name']} on {target_date} from MLB API: {e}")
-            return False
-        
-        # check if game is final and team won
-        if game.get('status') == 'Final':
-            winning_team = game.get('winning_team', '')
-            if winning_team == team['name']:
-                logger.info(f"{team['name']} WON on {target_date}!")
-                return True
-            else:
-                logger.info(f"{team['name']} lost on {target_date}. Winner: {winning_team}")
-                return False
-        else:
-            logger.info(f"Game on {target_date} is not final yet. Status: {game.get('status')}")
-            return False
-        
-    except Exception as e:
-        logger.error(f"Error checking game for {team['name']}: {e}")
-        return False
+            logging.warning(f"Failed reading cache: {e}")
 
+    logging.info("Fetching fresh schedule data from ESPN...")
+    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/teams/{TEAM_ID}/schedule"
+    resp = requests.get(url, timeout=20)
+    resp.raise_for_status()
+    data = resp.json()
 
-# send webhook if dodgers played a home game yesterday
-# if they won, send a webhook with a coupon for a two entree plate discount from Panda Express
-async def main(test_date=None):
+    schedule = {}
+    for event in data.get("events", []):
+        comps = (event.get("competitions") or [{}])[0].get("competitors") or []
+        date_str = (event.get("date") or "")[:10]
+        home_game = False
+        won = False
+        for c in comps:
+            if c.get("id") == TEAM_ID:
+                home_game = (c.get("homeAway") == "home")
+                won = bool(c.get("winner"))
+        schedule[date_str] = {"home_game": home_game, "won": won}
+
+    # Write back cache
     try:
-        logger.info("Starting Dodgers win check process")
-        
-        # check if dodgers won their game yesterday (or test date)
-        dodgers_won = yesterday_win(DODGERS_TEAM, test_date)
-        
-        if dodgers_won:
-            logger.info("Dodgers won! Sending Discord webhook notification")
-            async with aiohttp.ClientSession() as session:
-                webhook_payload = {
-                    "content": f"The {DODGERS_TEAM['name']} won yesterday!! Use coupon **DODGERSWIN** on online orders only at Panda Express",
-                    "username": "$6 Panda"
-                }
-                
-                try:
-                    async with session.post(WEBHOOK_URL, json=webhook_payload) as resp:
-                        if resp.status == 204:
-                            logger.info("✅ Discord webhook sent successfully")
-                        else:
-                            logger.error(f"❌ Discord webhook failed with status: {resp.status}")
-                            response_text = await resp.text()
-                            logger.error(f"Discord API response: {response_text}")
-                except Exception as e:
-                    logger.error(f"❌ Error sending Discord webhook: {e}")
-        else:
-            logger.info("Dodgers did not play/win yesterday. No webhook notification sent.")
-            
+        with open(SCHEDULE_CACHE_FILE, "w") as f:
+            json.dump(schedule, f)
     except Exception as e:
-        logger.error(f"❌ Critical error in main function: {e}")
-        raise
+        logging.warning(f"Failed writing cache: {e}")
 
+    return schedule.get(target)
 
-# testing function for easier debugging
-async def test_function():
-    """Test the function with a known date where Dodgers won"""
-    logger.info("🧪 Running in test mode")
-    await main(test_date="2025-07-23")  # replace with a date you want to test
+def send_webhook():
+    """Send win notification to Discord, pinging the configured role if present."""
+    if not DISCORD_WEBHOOK_URL:
+        raise RuntimeError("DISCORD_WEBHOOK_URL is not set. Add it as a GitHub Actions secret.")
 
+    role_mention = f"<@&{DISCORD_ROLE_ID}>" if DISCORD_ROLE_ID else ""
+    content = (
+        f"{role_mention} 🎉 The Dodgers won a **home game** yesterday! "
+        f"Claim your {COUPON_CODE}"
+    ).strip()
+
+    payload = {
+        "content": content,
+        "allowed_mentions": {
+            # Don't auto-parse everyone/here/roles; explicitly allow just the target role
+            "parse": [],
+            "roles": [DISCORD_ROLE_ID] if DISCORD_ROLE_ID else []
+        }
+    }
+
+    r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=20)
+    # 204 No Content is normal for webhooks (when wait=false)
+    if r.status_code not in (200, 201, 204):
+        raise RuntimeError(f"Webhook failed: {r.status_code} {r.text}")
+    logging.info("Webhook sent successfully.")
+
+def main():
+    try:
+        yesterday = pst_today() - datetime.timedelta(days=1)
+        result = fetch_schedule_for(yesterday)
+        if not result:
+            logging.info("No Dodgers game found for yesterday.")
+            return
+        if result.get("home_game") and result.get("won"):
+            send_webhook()
+        else:
+            logging.info("Dodgers either did not play at home or did not win yesterday.")
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
 
 if __name__ == "__main__":
-    # For testing, uncomment the line below and modify the date
-    # asyncio.run(test_function())
-    
-    # For production, run without test_date
-    asyncio.run(main())
+    main()

@@ -1,50 +1,27 @@
-# $6 Panda Express Bot
+# $6 Panda Express Bot — Role Ping
 
-A Discord bot that checks if the Los Angeles Dodgers won their home game yesterday and sends a notification message with a Panda Express coupon code.
+This version pings a specific role when the **Dodgers win a home game** the previous day.
 
-## Features
+## Setup
 
-- Checks Dodgers home game results daily at 12AM PST
-- Sends Discord webhook with coupon code when Dodgers win
-- Caches team schedule to reduce API calls
-- Logging for handling and debugging errors
-- Runs serverless via GitHub Actions
+1. Add a Discord webhook URL to GitHub Secrets as `DISCORD_WEBHOOK_URL`.
+2. (Optional) Add `DISCORD_ROLE_ID` if you want to override the default role id.
+   - Default role id used in code: `1404658865756180562`
+3. Ensure the role can be mentioned:
+   - **Server Settings → Roles → [Your Role] → "Allow anyone to @mention this role"** = ON (you said you've enabled this).
 
-## Self Setup on GitHub
+## Schedule
 
-### 1. Fork/Clone this Repository
+Runs daily at **12:00 AM PT** via GitHub Actions (`cron: 0 7 * * *`).
 
-### 2. Set up GitHub Secrets
+## Files
 
-Go to your repository Settings → Secrets and variables → Actions, then add:
+- `bot.py` — main logic (uses ESPN schedule endpoint, caches locally)
+- `requirements.txt` — Python deps
+- `.github/workflows/dodgers-bot.yml` — GitHub Actions workflow
 
-- `DISCORD_WEBHOOK_URL`: Your Discord webhook URL. To obtain this go to Server Settings > Integrations (under Apps) > Webhooks > Create/New Webhook.
+## Notes
 
-### 3. Configure the Workflow
-
-The GitHub Actions workflow will automatically run daily at 12AM PST. You can also manually trigger it from the Actions tab.
-
-## Local Development
-
-### Install Dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### Run Locally
-```bash
-python main.py
-```
-
-### Test with Specific Date
-```bash
-# Edit main.py and uncomment the test line
-python main.py
-```
-
-## Troubleshooting
-
-- If the bot stops working, check the Actions logs
-- Verify your Discord webhook URL is correct
-- Ensure the MLB API is accessible
-- Check that the Dodgers team ID is still valid (119)
+- Discord webhooks return **204 No Content** on success when `wait=false` (default).
+- If the ESPN endpoint ever changes, swap to MLB Stats API easily.
+- The bot only sends when the Dodgers **won at home** yesterday.
