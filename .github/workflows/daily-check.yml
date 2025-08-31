@@ -1,23 +1,29 @@
-name: Daily Dodgers Win Check
+name: Daily Automated Bot Run
+
+# runs the bot at a set time everyday
+
 on:
   schedule:
-    - cron: '0 7 * * *'  # 11PM PST/12AM PDT = 7AM UTC
+    - cron: '0 8 * * *'  # 12PM PST/1AM PDT = 8AM UTC
   workflow_dispatch:  # allows manual triggering
 
 jobs:
-  check:
+  main:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Restore pip cache
-        uses: actions/cache@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Restore schedule cache
         uses: actions/cache@v4
@@ -25,20 +31,11 @@ jobs:
           path: home_games_schedule.json
           key: schedule-cache
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
       - name: Run Dodgers win check
-        run: python main.py
+        run: python bot.py
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_ROLE_ID: ${{ secrets.DISCORD_ROLE_ID }}
 
       - name: Save schedule cache
         uses: actions/cache@v4

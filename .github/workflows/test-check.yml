@@ -1,4 +1,4 @@
-name: Test Dodgers Win Check
+name: Test Bot
 on:
   workflow_dispatch:
     inputs:
