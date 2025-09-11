@@ -223,11 +223,11 @@ def build_webhook_payload(game_info):
         role_ping = f"<@&{ROLE_ID}> " if ROLE_ID else ""
 
         # message contents
-        embed_title = f"Extras"
+        embed_title = f"Final Score"
         embed_description = ""
         embed_color = 23196  # this is Dodger Blue
         score_field = {
-            'name': "Final Score",
+            'name': "",
             'value': f"**{home_team}** {home_score} - {away_score} **{away_team}**\n\nWinner: **{winning_team}**"
         }
         promo_field = {
