@@ -242,7 +242,7 @@ def build_webhook_payload(game_info):
         # different messages on win/loss
         if home_win:
             payload = {
-                'content': f"The {home_team} WON yesterday :tada: {role_ping}come get your $6 plate :fortune_cookie:\n\nUse code: **DODGERSWIN**\n\nNot sure where? Check the links below\n_ _",
+                'content': f"The {home_team} WON yesterday :tada: {role_ping}come get your $6 plate :fortune_cookie:\n\nUse code: **DODGERSWIN**\n\nNot sure where? Check the links below",
                 'embeds': [
                     {
                         'title': embed_title,
