@@ -1,51 +1,75 @@
-name: Daily Automated Bot Run
-
-# runs the bot at a set time everyday
+name: Daily Run
+# purpose: runs the bot at a set time everyday
 
 on:
   schedule:
     - cron: '0 8 * * *'  # 12PM PST/1AM PDT = 8AM UTC
-  workflow_dispatch:  # allows manual triggering
+  workflow_dispatch:  # for manual trigger
+
+permissions:
+  contents: read
 
 jobs:
-  main:
+  production:
     runs-on: ubuntu-latest
     steps:
+      # code checkout
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
+      # set up python and cache dependencies in 'requirements.txt'
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.x'
           cache: 'pip'
 
+      # install dependencies from cache or 'requirements.txt'
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Restore schedule cache
+        run: pip install -r requirements.txt
+      
+      # obtain schedule json from cache
+      - name: Check schedule cache
         uses: actions/cache@v4
         with:
           path: home_games_schedule.json
           key: schedule-cache
 
-      - name: Run Dodgers win check
+      # run bot script
+      - name: Run bot
         run: python bot.py
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_ROLE_ID: ${{ secrets.DISCORD_ROLE_ID }}
-
-      - name: Save schedule cache
+        
+      # cache schedule for future use
+      - name: Cache schedule
         uses: actions/cache@v4
         with:
           path: home_games_schedule.json
           key: schedule-cache
 
-      - name: Upload schedule file as artifact (for debugging)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: schedule-data
-          path: home_games_schedule.json 
+      # send alert to Discord (if configured)
+      - name: Notify failure
+        if: failure()
+        run: |
+          # if webhook was put in secrets
+          if [ -n "${{ secrets.HEALTH_WEBHOOK_URL }}" ]; then
+            # send alert to Discord server
+            curl -X POST -H "Content-Type: application/json" \
+              -d '{"content": "⚠️ failed to run at ${{ github.run_started_at }}, retrying after 5 minutes..."}' \
+              ${{ secrets.HEALTH_WEBHOOK_URL }}
+          else
+            echo "No webhook configured, skipping notification"
+          fi
+
+      # rerun this workflow
+      - name: Retry run
+        if: failure()
+        run: |
+          sleep 300  # Wait 5 minutes
+          # retrigger workflow run
+          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/daily-check.yml/dispatches \
+            -d '{"ref":"main"}'

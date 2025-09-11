@@ -21,15 +21,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# constants
-WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL')  # this is REQUIRED
+## CONSTANTS
+# github secrets
+WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL')
 if not WEBHOOK_URL:
-    raise ValueError("DISCORD_WEBHOOK_URL environment variable is required")
+    raise ValueError("DISCORD_WEBHOOK_URL environment variable is required")  # this is REQUIRED
 ROLE_ID = os.environ.get('DISCORD_ROLE_ID')  # this is optional
+# file locations
+MESSAGE_CONTENTS = "message_contents.json"  # webhook contents
 SCHEDULE_FILE = "home_games_schedule.json"  # determine where the schedule is cached
+# team data
 DODGERS_TEAM = {
-    "name": "Los Angeles Dodgers",  
-    "id": 119
+    'name': "Los Angeles Dodgers",  
+    'id': 119
 }
 
 
@@ -46,7 +50,7 @@ def get_team_schedule(team):
             saved_schedule = json.load(f)
             if saved_schedule.get('season') == season:
                 logger.info(f"Using cached schedule for {team['name']} in {season}")
-                return saved_schedule['schedule']
+                return saved_schedule.get('games')
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         logger.info("No valid cached schedule found, fetching fresh data from MLB API")
     
@@ -61,17 +65,29 @@ def get_team_schedule(team):
             logger.error(f"Failed to obtain games for {team['name']} in {season} from MLB API")
             return None
         
-        # process the data to get list of home games only
+        # process the data to get list of home games and their relevant info
         team_home_games = []
         for game in team_games:
             try:
                 if game.get('home_id') == team['id'] and game.get('game_date'):
-                    team_home_games.append(game)
+                    team_home_games.append({
+                        'game_id': game.get('game_id'),
+                        'game_date': game.get('game_date'),
+                        'home_id': game.get('home_id'),
+                        'home_name': game.get('home_name'),
+                        'away_id': game.get('away_id'),
+                        'away_name': game.get('away_name'),
+                        # initialize below fields as empty, fill in later after the games are played
+                        'status': game.get('status'),
+                        'home_score': None,
+                        'away_score': None,
+                        'winning_team': None
+                    })
             except (KeyError, TypeError) as e:
                 logger.warning(f"Invalid game data structure: {e}")
                 continue
         
-        # check if we found any home games
+        # check if home games exist
         if not team_home_games:
             logger.warning(f"No home games found for {team['name']} in {season}")
             return []
@@ -79,174 +95,217 @@ def get_team_schedule(team):
         # store the schedule in a json file
         schedule_data = {
             'season': season,
-            'schedule': team_home_games,
+            'games': team_home_games,
             'fetch_time': datetime.now().isoformat()
         }
         
         with open(SCHEDULE_FILE, 'w') as f:
             json.dump(schedule_data, f, indent=2)
         
-        logger.info(f"Successfully fetched and cached schedule for {team['name']} in {season} ({len(team_home_dates)} home games)")
-        return schedule_data['schedule']
+        logger.info(f"Successfully fetched and cached schedule for {team['name']} in {season} ({len(team_home_games)} home games)")
+        return schedule_data['games']
         
     except Exception as e:
         logger.error(f"Error fetching {team['name']} schedule from MLB API: {e}")
         return None
+        
 
-
-# check if the given team won yesterday
-def yesterday_win(team, test_date=None):
-    try:
-        # get list of team's schedule
-        schedule = get_team_schedule(team)
-        
-        # get yesterday's date or use test date
-        if test_date:
-            target_date = test_date
-            logger.info(f"Running in test mode with date: {target_date}")
-        else:
-            target_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            logger.info(f"Checking game result for date: {target_date}")
-        
-        # check if team played on target date
-        if target_date not in schedule:
-            logger.info(f"No home game found for {team['name']} on {target_date}")
-            return False
-        
-        # get game result for the team on target date
-        try:
-            games = statsapi.schedule(date=target_date, team=team['id'])
-            
-            if not games:
-                logger.warning(f"No games found for {team['name']} on {target_date}")
-                return False
-            
-            game = games[0]  # get the first (and should be only) game
-            
-        except Exception as e:
-            logger.error(f"Error fetching game data for {team['name']} on {target_date} from MLB API: {e}")
-            return False
-        
-        # check if game is final and team won
-        if game.get('status') == 'Final':
-            winning_team = game.get('winning_team', '')
-            if winning_team == team['name']:
-                logger.info(f"{team['name']} WON on {target_date}!")
-                return True
-            else:
-                logger.info(f"{team['name']} lost on {target_date}. Winner: {winning_team}")
-                return False
-        else:
-            logger.info(f"Game on {target_date} is not final yet. Status: {game.get('status')}")
-            return False
-        
-    except Exception as e:
-        logger.error(f"Error checking game for {team['name']}: {e}")
-        return False
-
-
-# get game details for a team on a specific date (home games optimized)
+# get game details for a home game played by a team on a specific date
 def get_game_details(team, target_date):
     try:
-        # get list of team's schedule
+        # get team's schedule
         schedule = get_team_schedule(team)
+        if not schedule:
+            logger.info(f"No schedule found for {team['name']}")
+            return None
 
-        # if no home game exists on date
-        if target_date not in schedule:
-            return {
-                'date': target_date,
-                'played_home_game': False,
-                'status': 'No Home Game',
-            }
+        # check if there is home game on target date
+        target_game = next((g for g in schedule
+                     if g.get('game_date') == target_date and g.get('home_id') == team['id']), None)
+        if not target_game:
+            logger.info(f"No home game found for {team['name']} on {target_date}")
+            return None
 
-        games = statsapi.schedule(date=target_date, team=team['id'])
-        if not games:
-            return {
-                'date': target_date,
-                'played_home_game': True,
-                'status': 'No Data',
-            }
+        status = target_game.get('status')
+        home_score = target_game.get('home_score')
+        away_score = target_game.get('away_score')
+        winning_team = target_game.get('winning_team')
+        game_id = target_game.get('game_id')
 
-        game = games[0]
-        status = game.get('status')
-        is_final = status == 'Final'
-        home_name = game.get('home_name', '')
-        away_name = game.get('away_name', '')
-        home_score = game.get('home_score')
-        away_score = game.get('away_score')
-        winning_team = game.get('winning_team', '')
+        # check schedule if game was recorded
+        # otherwise retrieve results from API
+        if status != 'Final' or home_score is None or away_score is None:
+            try:
+                games_list = statsapi.schedule(date=target_date, team=team['id'])
+                game = next((g for g in games_list if g.get('game_id') == game_id), None)
+                if game:
+                    status = game.get('status', status)
+                    home_score = game.get('home_score', home_score)
+                    away_score = game.get('away_score', away_score)
+                    winning_team = game.get('winning_team', winning_team)
 
-        is_home = home_name == team['name']
-        opponent = away_name if is_home else home_name
+                # if any data is missing, make necessary API calls
+                if status != 'Final' or home_score is None or away_score is None:
+                    try:
+                        linescore = statsapi.get('game_linescore', {'gamePk': game_id})
+                        home_score = linescore.get('teams', {}).get('home', {}).get('runs', home_score)
+                        away_score = linescore.get('teams', {}).get('away', {}).get('runs', away_score)
+                    except Exception:
+                        pass
+
+                    try:
+                        g = statsapi.get('game', {'gamePk': game_id})
+                        status = (
+                            g.get('status', {}).get('detailedState')
+                            or g.get('status', {}).get('abstractGameState')
+                            or status
+                        )
+                    except Exception:
+                        pass
+
+                if status == 'Final' and home_score is not None and away_score is not None and not winning_team:
+                    winning_team = target_game.get('home_name') if home_score > away_score else target_game.get('away_name')
+
+                # persist back into cache
+                target_game['status'] = status
+                target_game['home_score'] = home_score
+                target_game['away_score'] = away_score
+                target_game['winning_team'] = winning_team
+
+                # write-through cache
+                try:
+                    with open(SCHEDULE_FILE, 'r') as f:
+                        data = json.load(f)
+                    # replace the entries (note: cache root key is 'games')
+                    for i, g in enumerate(data.get('games', [])):
+                        if g.get('game_date') == target_date and g.get('home_id') == team['id']:
+                            data['games'][i] = target_game
+                            break
+                    with open(SCHEDULE_FILE, 'w') as f:
+                        json.dump(data, f, indent=2)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
         return {
-            'date': target_date,
-            'played_home_game': True,
-            'status': status,
-            'is_final': is_final,
-            'is_home': is_home,
-            'team_name': team['name'],
-            'opponent_name': opponent,
-            'team_score': home_score if is_home else away_score,
-            'opponent_score': away_score if is_home else home_score,
+            'home_team': target_game.get('home_name'),
+            'away_team': target_game.get('away_name'),
+            'home_score': home_score,
+            'away_score': away_score,
             'winning_team': winning_team,
         }
+
     except Exception as e:
         logger.error(f"Error getting game details: {e}")
-        return {
-            'date': target_date,
-            'played_home_game': False,
-            'status': 'Error',
+        return None
+
+
+# build a Discord webhook payload for the Dodgers
+def build_webhook_payload(game_info):
+    try:
+        # if no game info (None), write an empty JSON object
+        if not game_info:
+            with open(MESSAGE_CONTENTS, 'w') as f:
+                json.dump({}, f)
+            return
+
+        home_team = game_info.get('home_team')
+        away_team = game_info.get('away_team')
+        home_score = game_info.get('home_score')
+        away_score = game_info.get('away_score')
+        winning_team = game_info.get('winning_team')
+
+        # check if home team won
+        home_win = winning_team == home_team
+
+        # configure role ping if exists
+        role_ping = f"<@&{ROLE_ID}> " if ROLE_ID else ""
+
+        # message contents
+        embed_title = f"Extras"
+        embed_description = ""
+        embed_color = 23196  # this is Dodger Blue
+        score_field = {
+            'name': "Final Score",
+            'value': f"**{home_team}** {home_score} - {away_score} **{away_team}**\n\nWinner: **{winning_team}**"
+        }
+        promo_field = {
+            'name': "What is the promo?",
+            'value': "This is a [collab](https://www.pandaexpress.com/promo/dodgerswin) between Panda Express and the LA Dodgers. Get the Panda Express mobile app to use the promo code, it's the only way.\n\nNot sponsored btw, and if you want to join in on the bigback activites get someone to give you the role for ping"
+        }
+        website_field = {
+            'name': "Website Tracker",
+            'value': "Check out [this website](https://www.ispandasix.com/) for a website tracker, it also shows the next upcoming games so you can plan for it\n\nThe creator of the website didn't make me (the bot) but they inspired my creation so big shoutout"
         }
 
+        # different messages on win/loss
+        if home_win:
+            payload = {
+                'content': f"THE {home_team} WON YESTERDAY :tada: {role_ping}come get your $6 plate :fortune_cookie:\n\nUse code: **DODGERSWIN**\n\nNot sure where? Check the links below\n_ _",
+                'embeds': [
+                    {
+                        'title': embed_title,
+                        'description': embed_description,
+                        'color': embed_color,
+                        'fields': [
+                            score_field,
+                            promo_field,
+                            website_field
+                        ]
+                    }
+                ]
+            }
+        else:
+            payload = {
+                'content': f"The {home_team} played yesterday but they lost\n\nNo big back activities today :frowning:",
+                'embeds': [
+                    {
+                        'title': embed_title,
+                        'description': embed_description,
+                        'color': embed_color,
+                        'fields': [
+                            score_field,
+                            website_field
+                        ]
+                    }
+                ]
+            }
+        
+        with open(MESSAGE_CONTENTS, 'w') as f:
+            json.dump(payload, f, indent=2)
 
-# build a Discord webhook payload from game details
-def build_webhook_payload(team, test_date=None):
-    try:
-        # get list of team's schedule
-        schedule = get_team_schedule(team)
+    except Exception as e:
+        logger.error(f"Error building webhook payload: {e}")
+        # on error, write empty object to avoid sending a bad payload
+        try:
+            with open(MESSAGE_CONTENTS, 'w') as f:
+                json.dump({}, f)
+        except Exception:
+            pass
 
 
-    
-    date_str = game_info.get('date', '')
-    status = game_info.get('status', 'Unknown')
-
-    if status == 'No Home Game':
-        content = f"No Dodgers home game on {date_str}."
-        return { 'content': content }
-
-    if status in ('Error', 'No Data'):
-        content = f"Could not retrieve Dodgers game details for {date_str} (status: {status})."
-        return { 'content': content }
-
-    team_name = game_info.get('team_name')
-    opponent = game_info.get('opponent_name')
-    team_score = game_info.get('team_score')
-    opponent_score = game_info.get('opponent_score')
-    is_final = game_info.get('is_final', False)
-    winning_team = game_info.get('winning_team')
-
-    if is_final:
-        result = 'W' if winning_team == team_name else 'L'
-        title = f"{team_name} vs {opponent} — Final ({date_str})"
-        description = f"Final Score: {team_name} {team_score} - {opponent_score} {opponent} ({result})"
-    else:
-        title = f"{team_name} vs {opponent} — {status} ({date_str})"
-        description = f"Current/Latest Score: {team_name} {team_score} - {opponent_score} {opponent}"
-
-    embed = {
-        'title': title,
-        'description': description,
-    }
-
-    return { 'embeds': [embed] }
-
-
-# send message as bot on Discord
-# WARNING: check if payload format is valid
-async def send_webhook(payload):
+# send message as a bot on Discord
+async def send_webhook():
     async with aiohttp.ClientSession() as session:
         try:
+            # read payload from file
+            try:
+                with open(MESSAGE_CONTENTS, 'r') as f:
+                    payload = json.load(f)
+            except FileNotFoundError:
+                logger.info("No message file found; skipping webhook send")
+                return
+            except json.JSONDecodeError:
+                logger.error("Message file is invalid JSON; skipping webhook send")
+                return
+
+            # check if message is empty
+            if not payload:
+                logger.info("No message contents, no home game played yesterday; skipping webhook send")
+                return
+
+            # send webhook
             async with session.post(WEBHOOK_URL, json=payload) as resp:
                 if resp.status == 204:
                     logger.info("✅ Discord webhook sent successfully")
@@ -261,11 +320,10 @@ async def send_webhook(payload):
 # check conditions for Panda x Dodgers collab discount and send webhook
 async def main(test_date=None):
     try:
-        logger.info("Good morning! Daily Dodgers game check process starting...")
+        logger.info("Daily Dodgers game check process starting...")
         target_date = test_date if test_date else (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        game_info = get_game_details(DODGERS_TEAM, target_date)
-        payload = build_webhook_payload(game_info)
-        await send_webhook(payload)
+        build_webhook_payload(get_game_details(DODGERS_TEAM, target_date))
+        await send_webhook()
     except Exception as e:
         logger.error(f"❌ Critical error in main function: {e}")
         raise
