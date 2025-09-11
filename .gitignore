@@ -33,8 +33,9 @@ ENV/
 
 # Project specific
 home_games_schedule.json
+message_contents.json
 dodgers_bot.log
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
