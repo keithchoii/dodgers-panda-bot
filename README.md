@@ -1,50 +1,47 @@
 # $6 Panda Express Bot
 
-A Discord bot that checks if the Los Angeles Dodgers won their home game yesterday and sends a notification message with a Panda Express coupon code.
-
-## Features
-
-- Checks Dodgers home game results daily at 12AM PST
-- Sends Discord webhook with coupon code when Dodgers win
-- Caches team schedule to reduce API calls
-- Logging for handling and debugging errors
-- Runs serverless via GitHub Actions
+A simple Discord bot that supports your Panda Express addiction and notifies you when their [Dodgers discount](https://www.pandaexpress.com/promo/dodgerswin) is usable
 
 ## Self Setup on GitHub
 
+You want to use this bot? Go ahead idc, but you have to set it up yourself (it's free dw)
+
 ### 1. Fork/Clone this Repository
+
+Easier way is to fork the repository, but if you know what you're doing you can clone it too I guess
 
 ### 2. Set up GitHub Secrets
 
-Go to your repository Settings → Secrets and variables → Actions, then add:
+This is IMPORTANT, the bot needs to know which channel to send its messages to. Make sure you add the necessary secrets!
 
-- `DISCORD_WEBHOOK_URL`: Your Discord webhook URL. To obtain this go to Server Settings > Integrations (under Apps) > Webhooks > Create/New Webhook.
+Go to your repository Settings → Secrets and variables (under Security) → Actions → Secrets → New repository secret. Copy the following names that look `LIKE_THIS` into the Name section, and your personal information into the Secret section under it:
 
-### 3. Configure the Workflow
+- `DISCORD_WEBHOOK_URL`: To obtain this go to Server Settings > Integrations (under Apps) > Webhooks > Create/New Webhook > Copy Webhook URL. After, customize your bot's name as you like and choose the channel you want the messages to appear in!
 
-The GitHub Actions workflow will automatically run daily at 12AM PST. You can also manually trigger it from the Actions tab.
+**(OPTIONAL)** Secrets:
 
-## Local Development
+- `DISCORD_ROLE_ID`: To obtain this go to Server Settings > Roles (under People) > Find your designated role and click the three dots (says More when hovered) > Copy Role ID. Now the bot will ping this role when it sends its messages!
+- `HEALTH_WEBHOOK_URL`: To obtain this follow the same instructions as above. Add this secret if you want to be notified when the bot fails.
+- `TEST_WEBHOOK_URL`: To obtain this follow the same instructions as above. Add this secret if you need to test using the built-in Debug workflow on Github.
 
-### Install Dependencies
-```bash
-pip install -r requirements.txt
-```
+Once you add a secret you can't see what your secret is ever again, but you can always go back and edit the secret with a new value.
 
-### Run Locally
-```bash
-python main.py
-```
+### 3. You did it :tada:
 
-### Test with Specific Date
-```bash
-# Edit main.py and uncomment the test line
-python main.py
-```
+The bot should now automatically run daily at 12AM PST (-8 UTC). You can also manually trigger it or even test it from the Actions tab on your repository. If something isn't working, check below. Otherwise, enjoy your Panda :smile:
 
 ## Troubleshooting
 
-- If the bot stops working, check the Actions logs
-- Verify your Discord webhook URL is correct
-- Ensure the MLB API is accessible
-- Check that the Dodgers team ID is still valid (119)
+- If the bot stops working, check the Actions logs for errors
+- Verify your Discord webhook URLs are valid
+- Ensure the MLB API is accessible and working
+- Check that the Dodgers team ID on the API is still correct (119)
+- Ask AI?
+
+## Problems/Suggestions
+
+If you have any issues and the troubleshooting didn't help, you encountered any bugs, or you want to suggest changes that improve the bot, go to [Issues](https://github.com/keithchoii/dodgers-panda-bot/issues)
+ 
+### Copyright
+
+This bot is not affiliated with the Los Angeles Dodgers or Panda Express. Game data is retrieved from MLB Stats API through [statsapi](https://github.com/toddrob99/MLB-StatsAPI)

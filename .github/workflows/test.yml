@@ -1,0 +1,58 @@
+name: Debug
+# purpose: test the bot with a specific date for debugging purposes
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_date:
+        description: 'Test date format: (YYYY-MM-DD)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # copy repo
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # set up python and cache dependencies in 'requirements.txt'
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      # install dependencies from cache or 'requirements.txt'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      # obtain schedule json from cache
+      - name: Check schedule cache
+        uses: actions/cache@v4
+        with:
+          path: home_games_schedule.json
+          key: schedule-cache
+
+      # run bot script with given test date
+      - name: Run test with specific date
+        run: |
+          echo "Testing with date: ${{ github.event.inputs.test_date }}"
+          python - <<'PY'
+          import asyncio
+          from bot import main
+          asyncio.run(main(test_date='${{ github.event.inputs.test_date }}'))
+          PY
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.TEST_WEBHOOK_URL }}
+
+      # cache schedule for future use
+      - name: Cache schedule
+        uses: actions/cache@v4
+        with:
+          path: home_games_schedule.json
+          key: schedule-cache

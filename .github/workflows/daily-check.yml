@@ -1,54 +1,75 @@
-name: Daily Dodgers Win Check
+name: Daily Run
+# purpose: runs the bot at a set time everyday
+
 on:
   schedule:
-    - cron: '0 7 * * *'  # 11PM PST/12AM PDT = 7AM UTC
-  workflow_dispatch:  # allows manual triggering
+    - cron: '0 8 * * *'  # 12PM PST/1AM PDT = 8AM UTC
+  workflow_dispatch:  # for manual trigger
+
+permissions:
+  contents: read
 
 jobs:
-  check:
+  production:
     runs-on: ubuntu-latest
     steps:
+      # code checkout
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Restore pip cache
-        uses: actions/cache@v4
+      # set up python and cache dependencies in 'requirements.txt'
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          python-version: '3.x'
+          cache: 'pip'
 
-      - name: Restore schedule cache
+      # install dependencies from cache or 'requirements.txt'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      # obtain schedule json from cache
+      - name: Check schedule cache
         uses: actions/cache@v4
         with:
           path: home_games_schedule.json
           key: schedule-cache
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run Dodgers win check
-        run: python main.py
+      # run bot script
+      - name: Run bot
+        run: python bot.py
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-
-      - name: Save schedule cache
+          DISCORD_ROLE_ID: ${{ secrets.DISCORD_ROLE_ID }}
+        
+      # cache schedule for future use
+      - name: Cache schedule
         uses: actions/cache@v4
         with:
           path: home_games_schedule.json
           key: schedule-cache
 
-      - name: Upload schedule file as artifact (for debugging)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: schedule-data
-          path: home_games_schedule.json 
+      # send alert to Discord (if configured)
+      - name: Notify failure
+        if: failure()
+        run: |
+          # if webhook was put in secrets
+          if [ -n "${{ secrets.HEALTH_WEBHOOK_URL }}" ]; then
+            # send alert to Discord server
+            curl -X POST -H "Content-Type: application/json" \
+              -d '{"content": "⚠️ failed to run at ${{ github.run_started_at }}, retrying after 5 minutes..."}' \
+              ${{ secrets.HEALTH_WEBHOOK_URL }}
+          else
+            echo "No webhook configured, skipping notification"
+          fi
+
+      # rerun this workflow
+      - name: Retry run
+        if: failure()
+        run: |
+          sleep 300  # Wait 5 minutes
+          # retrigger workflow run
+          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/daily-check.yml/dispatches \
+            -d '{"ref":"main"}'

@@ -1,0 +1,54 @@
+name: Health Check
+# purpose: check if daily run failed to work properly
+
+on:
+  schedule:
+    - cron: '0 9/12 * * *'  # runs automatically every 12 hours starting at 9AM UTC
+  workflow_dispatch: # for manual checking
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check daily workflow status
+        id: health_check
+        run: |
+          # get last successful run of daily workflow
+          last_run=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/daily-check.yml/runs?status=success&per_page=1")
+
+          # get last run date
+          last_run_date=$(echo "$last_run" | jq -r '.workflow_runs[0].created_at')
+
+          # if workflow never ran
+          if [ -z "$last_run_date" ]; then
+            echo "No successful runs found"
+            echo "alert=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # convert to timestamp and check if it's within last 25 hours
+          run_timestamp=$(date -d "$last_run_date" +%s)
+          current_timestamp=$(date +%s)
+          time_diff=$((current_timestamp - run_timestamp))
+          diff_hours=$((time_diff / 3600))
+          
+          echo "Last successful run: $last_run_date ($diff_hours hours ago)"
+          
+          if [ $diff_hours -gt 25 ]; then
+            echo "alert=true" >> $GITHUB_OUTPUT
+          else
+            echo "alert=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send alert
+        if: steps.health_check.outputs.alert == 'true'
+        run: |
+          # If daily workflow hasn't run in last 25 hours send alert to Discord server
+          curl -X POST -H "Content-Type: application/json" \
+            -d '{"content": "⚠️ no recent successful runs, something may be wrong ⚠️"}' \
+            ${{ secrets.HEALTH_WEBHOOK_URL }}
+
