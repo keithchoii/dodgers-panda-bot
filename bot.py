@@ -228,21 +228,20 @@ def build_webhook_payload(game_info):
         embed_color = 23196  # this is Dodger Blue
         score_field = {
             'name': "",
-            'value': f"**{home_team}** {home_score} - {away_score} **{away_team}**\n\nWinner: **{winning_team}**"
+            'value': f"**{home_team}** {home_score} - {away_score} **{away_team}**\nWinner: **{winning_team}**"
         }
         promo_field = {
             'name': "What is the promo?",
-            'value': "This is a [collab](https://www.pandaexpress.com/promo/dodgerswin) between Panda Express and the LA Dodgers. Get the Panda Express mobile app to use the promo code, it's the only way.\n\nNot sponsored btw, and if you want to join in on the bigback activites get someone to give you the role for ping"
+            'value': "This is a [collab](https://www.pandaexpress.com/promo/dodgerswin) between Panda Express and the LA Dodgers. Get the Panda Express mobile app to use the promo code.\n\nNot sponsored btw, and if you want to join in on the big backtivites get someone to give you the role for ping"
         }
-        website_field = {
-            'name': "Website Tracker",
-            'value': "Check out [this website](https://www.ispandasix.com/) for a website tracker, it also shows the next upcoming games so you can plan for it\n\nThe creator of the website didn't make me (the bot) but they inspired my creation so big shoutout"
+        website_footer = {
+            'text': "Check out this unaffiliated but cool [website](https://www.ispandasix.com/) for a mobile tracker, it also shows the next upcoming games"
         }
 
         # different messages on win/loss
         if home_win:
             payload = {
-                'content': f"The {home_team} WON yesterday :tada: {role_ping}come get your $6 plate :fortune_cookie:\n\nUse code: **DODGERSWIN**\n\nNot sure where? Check the links below",
+                'content': f"The {home_team} WON yesterday :tada: {role_ping}come get your $6 plate :fortune_cookie:\n\nUse code: **DODGERSWIN**",
                 'embeds': [
                     {
                         'title': embed_title,
@@ -250,24 +249,24 @@ def build_webhook_payload(game_info):
                         'color': embed_color,
                         'fields': [
                             score_field,
-                            promo_field,
-                            website_field
-                        ]
+                            promo_field
+                        ],
+                        'footer': website_footer
                     }
                 ]
             }
         else:
             payload = {
-                'content': f"The {home_team} played yesterday but they lost\n\nNo big back activities today :frowning:",
+                'content': f"The {home_team} played yesterday but they lost\n\nNo big backtivities today :frowning:",
                 'embeds': [
                     {
                         'title': embed_title,
                         'description': embed_description,
                         'color': embed_color,
                         'fields': [
-                            score_field,
-                            website_field
-                        ]
+                            score_field
+                        ],
+                        'footer': website_footer
                     }
                 ]
             }
