@@ -228,15 +228,15 @@ def build_webhook_payload(game_info):
         embed_color = 23196  # this is Dodger Blue
         score_field = {
             'name': "Final Score",
-            'value': f"**{home_team}** {home_score} - {away_score} **{away_team}**\nWinner: **{winning_team}**"
+            'value': f"**{home_team}** {home_score} - {away_score} **{away_team}**\nWinner: **{winning_team}**\n_ _"
         }
         promo_field = {
             'name': "What is the promo?",
-            'value': "This is a [collab](https://www.pandaexpress.com/promo/dodgerswin) between Panda Express and the LA Dodgers, get the Panda Express mobile app to use the promo code"
+            'value': "This is a [collab](https://www.pandaexpress.com/promo/dodgerswin) between Panda Express and the LA Dodgers, get the Panda Express mobile app to use the promo code\nIf you want to join in on the big backtivites get someone to give you the role for ping\n_ _"
         }
         website_field = {
-            'name': "If you want to join in on the big backtivites get someone to give you the role for ping",
-            'value': "Check out this unaffiliated but cool [website](https://www.ispandasix.com/) for a mobile tracker, it also shows the next upcoming games"
+            'name': ":globe_with_meridians:",
+            'value': "Check out this unaffiliated but cool [website](https://www.ispandasix.com/) for upcoming games"
         }
 
         # different messages on win/loss
